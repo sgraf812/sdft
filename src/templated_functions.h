@@ -76,11 +76,13 @@ static void APPEND_TYPE_SUFFIX(impl_init)(
     s->push_next_sample = &APPEND_TYPE_SUFFIX(impl_push_next_sample);
     s->unshift_signal = &APPEND_TYPE_SUFFIX(impl_unshift_signal);
 
+
+    CPLX *sig = signal;
     // check for violations of the signal traits
     for (int i = 0; i < number_of_samples; ++i) {
         assert(s->signal_traits == SDFT_REAL_AND_IMAG
-                || s->signal_traits == SDFT_REAL_ONLY && APPEND_TYPE_SUFFIX(cimag)(s->signal[i]) == 0
-                || s->signal_traits == SDFT_IMAG_ONLY && APPEND_TYPE_SUFFIX(creal)(s->signal[i]) == 0);
+                || s->signal_traits == SDFT_REAL_ONLY && APPEND_TYPE_SUFFIX(cimag)(sig[i]) == 0
+                || s->signal_traits == SDFT_IMAG_ONLY && APPEND_TYPE_SUFFIX(creal)(sig[i]) == 0);
     }
 
     // generate the phase offsets
