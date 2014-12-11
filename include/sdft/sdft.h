@@ -2,6 +2,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
 * \brief An opaque state struct which is internally used for preservation of state
 * between sdft calls.
@@ -95,3 +99,7 @@ void sdft_push_next_sample(struct sdft_State *state, void *next_sample);
 * Runtime: O(number_of_samples)
 */
 void sdft_unshift_signal(struct sdft_State *state);
+
+#ifdef __cplusplus
+};
+#endif

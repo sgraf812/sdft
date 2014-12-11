@@ -27,6 +27,7 @@ static const size_t N = 16;
 char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
 {
     // 1. Allocate the buffers of the complex number type to use.
+    //    Here, C99 complex numbers are used, but this can be anything binary compatible (e.g. double[2]).
     cplx signal_buffer[N];
     cplx spec_buffer[N];
     cplx phase_buffer[N];
