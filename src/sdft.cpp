@@ -1,5 +1,6 @@
-#include <complex>
 #include <cassert>
+
+#include <complex>
 
 #include "sdft/sdft.h"
 
@@ -101,15 +102,16 @@ static void impl_init(
     cplx *offsets = (cplx *) buffer;
 
     // check for violations of the signal traits
-    for (int i = 0; i < number_of_samples; ++i) {
+    for (size_t i = 0; i < number_of_samples; ++i) {
         assert(s->signal_traits == SDFT_REAL_AND_IMAG
                 || s->signal_traits == SDFT_REAL_ONLY && imag(sig[i]) == 0
                 || s->signal_traits == SDFT_IMAG_ONLY && real(sig[i]) == 0);
     }
 
     // generate the phase offsets
+	const Float double_pi = static_cast<Float>(2*3.141592653589793238462643383279502884); // Enough precision for everyone!
     for (size_t i = 0; i < number_of_samples; i++) {
-        cplx angle(0, 2 * M_PI * i / number_of_samples);
+        cplx angle(0, double_pi * i / number_of_samples);
         offsets[i] = exp(angle);
     };
 }
@@ -165,7 +167,7 @@ void impl_unshift_signal(struct sdft_State *s)
 
     cplx first = signal[0];
     size_t cur = 0;
-    for (int i = 0; i < n - 1; ++i) {
+    for (size_t i = 0; i < n - 1; ++i) {
         size_t next = (cur + ofs) % n;
         signal[cur] = signal[next];
         cur = next;
