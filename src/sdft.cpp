@@ -33,8 +33,11 @@ struct sdft_State {
     void *phase_offsets;
     size_t signal_index;
     size_t number_of_samples;
-    void (*push_next_sample)(struct sdft_State*, void *next_sample);
-    void (*unshift_signal)(struct sdft_State*);
+
+    void (*push_next_sample)(struct sdft_State *, void *next_sample);
+
+    void (*unshift_signal)(struct sdft_State *);
+
     enum sdft_SignalTraits signal_traits;
 };
 
@@ -109,7 +112,7 @@ static void impl_init(
     }
 
     // generate the phase offsets
-	const Float double_pi = static_cast<Float>(2*3.141592653589793238462643383279502884); // Enough precision for everyone!
+    const Float double_pi = static_cast<Float>(2 * 3.141592653589793238462643383279502884); // Enough precision for everyone!
     for (size_t i = 0; i < number_of_samples; i++) {
         cplx angle(0, double_pi * i / number_of_samples);
         offsets[i] = exp(angle);

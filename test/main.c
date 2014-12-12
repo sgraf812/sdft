@@ -5,36 +5,36 @@
 
 #include "sdft/sdft.h"
 #include "minunit.h"
-#include "cplx.h"
+#include "my_complex.h"
 
 int tests_run = 0;
 
-void dft(cplx *signal, cplx *spec, size_t N)
+void dft(my_complex *signal, my_complex *spec, size_t N)
 {
     for (size_t i = 0; i < N; ++i) {
-		spec[i] = cplx_zero;
+        spec[i] = my_complex_zero;
         for (size_t j = 0; j < N; ++j) {
-			const double double_pi = 2 * 3.141592653589793238462643383279502884;
+            const double double_pi = 2 * 3.141592653589793238462643383279502884;
             double angle = -double_pi * i * j / N;
             // spec[i] += signal[j] * cexp(angle*I);
-			cplx tmp = { cos(angle), sin(angle) };
-			tmp = cplx_mult(signal + j, &tmp);
-			spec[i] = cplx_add(spec + i, &tmp);
+            my_complex tmp = {cos(angle), sin(angle)};
+            tmp = my_complex_mult(signal + j, &tmp);
+            spec[i] = my_complex_add(spec + i, &tmp);
         }
     }
 }
 
 #define N 16
 
-char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
+char *compare_sdft_to_dft(my_complex *new_signal, enum sdft_SignalTraits traits)
 {
     // 1. Allocate the buffers of the complex number type to use.
-    //    Here, we use a custom typedef of just two doubles (double[2]). 
-    cplx signal_buffer[N];
-    cplx spec_buffer[N];
-    cplx phase_buffer[N];
-    memset(signal_buffer, 0, N * sizeof(cplx));
-    memset(spec_buffer, 0, N * sizeof(cplx));
+    //    Here, we use a custom typedef of just two doubles (double[2]).
+    my_complex signal_buffer[N];
+    my_complex spec_buffer[N];
+    my_complex phase_buffer[N];
+    memset(signal_buffer, 0, N * sizeof(my_complex));
+    memset(spec_buffer, 0, N * sizeof(my_complex));
 
     // 2. Allocate and initialize the sdft_State with the help of the first two library functions
     struct sdft_State *s = malloc(sdft_size_of_state());
@@ -43,8 +43,8 @@ char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
             SDFT_DOUBLE,   // floating point type to use for the complex computations
             signal_buffer, // user allocated and initialized buffer containing the signal, length at least N
             spec_buffer,   // user allocated and initialized buffer containing the spectrum matching the signal
-                           // its length depends on the supplied traits value, at least N/2 or at least N.
-                           // Here, we always allocate N to be safe.
+            // its length depends on the supplied traits value, at least N/2 or at least N.
+            // Here, we always allocate N to be safe.
             phase_buffer,  // user allocated buffer used and initialized internal by the algorithm.
             N,             // length of the signal / number of samples
             traits);       // signal traits of the intended usage. See the docstrings.
@@ -53,7 +53,7 @@ char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
     //    This gets the actual work done and computes a new spectrum for each sample.
     //    Throughout the rest of the function, we can access the spectrum by spec_buffer.
     for (int i = 0; i < N; ++i) {
-        sdft_push_next_sample(s, *new_signal + i);
+        sdft_push_next_sample(s, new_signal + i);
     }
 
     // Steps 4-6 are rather optional.
@@ -66,17 +66,17 @@ char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
     //    In this case, since we pushed all N values of new_signal, the signal_buffer must contain
     //    the same samples as new_signal.
     for (size_t i = 0; i < N; ++i) {
-        MU_ASSERT("signal equals new_signal", cplx_equal(signal_buffer + i, *new_signal + i));
+        MU_ASSERT("signal equals new_signal", my_complex_equal(signal_buffer + i, new_signal + i));
     }
 
-    cplx expected_spec[N];
-    dft(*new_signal, expected_spec, N);
+    my_complex expected_spec[N];
+    dft(new_signal, expected_spec, N);
 
     // 6. Here, we compare the spectrum computed by the SDFT to that of a classic DFT.
     size_t n_bins = traits == SDFT_REAL_AND_IMAG ? N : N / 2;
     for (size_t i = 0; i < n_bins; ++i) {
-		cplx delta = cplx_sub(spec_buffer + i, expected_spec + i);
-        MU_ASSERT("spectrum equal to that of the dft", cplx_abs(&delta) < 0.001);
+        my_complex delta = my_complex_sub(spec_buffer + i, expected_spec + i);
+        MU_ASSERT("spectrum equal to that of the dft", my_complex_abs(&delta) < 0.001);
     }
 
     // 7. Finally, we have to be sure to free all allocated buffers.
@@ -90,38 +90,38 @@ char *compare_sdft_to_dft(cplx (*new_signal)[N], enum sdft_SignalTraits traits)
 
 char *test_build_dft_from_zeros()
 {
-    cplx new_signal[N] = {
-			{ 51, 0 }, { 2, 0 }, { 42, 5 }, { 0.2, 0.5 },
-			{ 1, 0 }, { 765, 0 }, { 34, 0 }, { 2903, 0 },
-			{ 4096, 256 }, { 0, 5334 }, { 3, 0 }, { 6, 0 },
-			{ 4, 0 }, { 1, 0 }, { 0, 74 }, { 79, 74.5 }
-	};
+    my_complex new_signal[N] = {
+            {51, 0}, {2, 0}, {42, 5}, {0.2, 0.5},
+            {1, 0}, {765, 0}, {34, 0}, {2903, 0},
+            {4096, 256}, {0, 5334}, {3, 0}, {6, 0},
+            {4, 0}, {1, 0}, {0, 74}, {79, 74.5}
+    };
 
-    return compare_sdft_to_dft(&new_signal, SDFT_REAL_AND_IMAG);
+    return compare_sdft_to_dft(new_signal, SDFT_REAL_AND_IMAG);
 }
 
 char *test_real_signal()
 {
-    cplx new_signal[N] = {
-			{ 51, 0 }, { 2, 0 }, { 42, 0 }, { 0.2, 0 },
-			{ 1, 0 }, { 765, 0 }, { 34, 0 }, { 2903, 0 },
-			{ 4096, 0 }, { 5334, 0 }, { 3, 0 }, { 6, 0 },
-			{ 4, 0 }, { 1, 0 }, { 74, 0 }, { 79, 0 }
+    my_complex new_signal[N] = {
+            {51, 0}, {2, 0}, {42, 0}, {0.2, 0},
+            {1, 0}, {765, 0}, {34, 0}, {2903, 0},
+            {4096, 0}, {5334, 0}, {3, 0}, {6, 0},
+            {4, 0}, {1, 0}, {74, 0}, {79, 0}
     };
 
-    return compare_sdft_to_dft(&new_signal, SDFT_REAL_ONLY);
+    return compare_sdft_to_dft(new_signal, SDFT_REAL_ONLY);
 }
 
 char *test_imag_signal()
 {
-    cplx new_signal[N] = {
-			{ 0, 51 }, { 0, 2 }, { 0, 42 }, { 0, 0.2 },
-			{ 0, 1 }, { 0, 765 }, { 0, 34 }, { 0, 2903 },
-			{ 0, 4096 }, { 0, 5334 }, { 0, 3 }, { 0, 6 },
-			{ 0, 4 }, { 0, 1 }, { 0, 74 }, { 0, 79 }
+    my_complex new_signal[N] = {
+            {0, 51}, {0, 2}, {0, 42}, {0, 0.2},
+            {0, 1}, {0, 765}, {0, 34}, {0, 2903},
+            {0, 4096}, {0, 5334}, {0, 3}, {0, 6},
+            {0, 4}, {0, 1}, {0, 74}, {0, 79}
     };
 
-    return compare_sdft_to_dft(&new_signal, SDFT_IMAG_ONLY);
+    return compare_sdft_to_dft(new_signal, SDFT_IMAG_ONLY);
 }
 
 char *test_suite(void)
