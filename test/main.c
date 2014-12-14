@@ -51,7 +51,7 @@ char *compare_sdft_to_dft(my_complex *new_signal, enum sdft_SignalTraits traits,
     // 3. Push through all new N values of our incoming signal.
     //    This gets the actual work done and computes a new spectrum for each sample.
     //    Throughout the rest of the function, we can access the spectrum by spec_buffer.
-    for (int i = 0; i < N; ++i) {
+    for (size_t i = 0; i < N; ++i) {
         sdft_push_next_sample(s, new_signal + i);
     }
 
@@ -122,43 +122,37 @@ char *compare_sdft_to_dft_combined(my_complex *new_signal, enum sdft_SignalTrait
     // 3. Push through all new N values of our incoming signal.
     //    To make this more interesting (and to actually test that the combination works),
     //    We will push through the values 10 times.
-    for (int i = 0; i < 10 * N; ++i) {
-        sdft_push_next_sample(combined, new_signal + i);
-    }
-
-    // Steps 4-6 are rather optional.
-
-    // 4. When we want to inspect what the actual signal values are, we have to unshift the
-    //    internal representation first.
-    my_complex *sig = sdft_unshift_and_get_signal(combined);
-
-    // 5. Now we can also access signal_buffer for the stored signal.
-    //    In this case, since we pushed all N values of new_signal, the signal_buffer must contain
-    //    the same samples as new_signal.
-    for (size_t i = 0; i < N; ++i) {
-        MU_ASSERT("signal equals new_signal", my_complex_equal(sig + i, new_signal + i));
-    }
-
     my_complex *expected_spec = malloc(sizeof(my_complex) * N);
     dft(new_signal, expected_spec, N);
+    for (size_t i = 0; i < 10 * N; ++i) {
+		if (i >= N) {
+			// We can now assert that we indeed always have a valid signal.
+			my_complex *actual_sig = sdft_unshift_and_get_signal(combined);
+			for (size_t j = 0; j < N; ++j) {
+				int equal = my_complex_equal(actual_sig + j, new_signal + (i + j) % N);
+				MU_ASSERT("actual_signal doesn't match new_signal", equal);
+			}
 
-    // 6. Here, we compare the spectrum computed by the SDFT to that of a classic DFT.
-    my_complex *actual_spec = sdft_get_spectrum(combined);
-    size_t n_bins = traits == SDFT_REAL_AND_IMAG ? N : N / 2;
-    for (size_t i = 0; i < n_bins; ++i) {
-        my_complex delta = my_complex_sub(actual_spec + i, expected_spec + i);
-        MU_ASSERT("spectrum equal to that of the dft", my_complex_abs(&delta) < 0.001);
+			if (i % N == 0) {
+				my_complex *actual_spec = sdft_get_spectrum(combined);
+				size_t n_bins = traits == SDFT_REAL_AND_IMAG ? N : N / 2;
+				for (size_t j = 0; j < n_bins; ++j) {
+					my_complex delta = my_complex_sub(actual_spec + j, expected_spec + j);
+					int equal = my_complex_abs(&delta) < 0.001;
+					MU_ASSERT("spectrum isn't equal to that of the dft", equal);
+				}
+			} 
+		}
+
+        sdft_push_next_sample(combined, new_signal + i%N);
     }
 
     double *abs_spec = malloc(sizeof(double) * N);
     for (size_t i = 0; i < N; i++) {
-        abs_spec[i] = my_complex_abs(actual_spec + i);
+        abs_spec[i] = my_complex_abs(expected_spec + i);
     }
 
-    // 7. Finally, we have to be sure to free all allocated buffers.
-    //    In this case, we allocated all buffers on the stack, the only exception being
-    //    the sdft_State variable, which was malloc'ed. (Technically, we could use VLA to allocate it
-    //    on the stack, too).
+    // Finally, we have to be sure to free all allocated buffers.
     free(fst);
     free(snd);
     free(combined);

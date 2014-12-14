@@ -1,6 +1,7 @@
 #include <cassert>
 
 #include <complex>
+#include <algorithm>
 
 #include "sdft/sdft.h"
 
@@ -32,7 +33,7 @@ struct Impl : public sdft_State {
     Impl(void *signal, void *spectrum, void *phase_offsets, size_t number_of_samples,
             enum sdft_SignalTraits signal_traits);
 
-    enum sdft_Error validate();
+    sdft_Error validate();
 
     void clear();
 
@@ -41,7 +42,7 @@ struct Impl : public sdft_State {
         return _number_of_samples;
     }
 
-    enum sdft_Error push_next_sample(void *next_sample);
+    sdft_Error push_next_sample(void *next_sample);
 
     void *get_spectrum()
     {
@@ -50,7 +51,7 @@ struct Impl : public sdft_State {
 
     void *unshift_and_get_signal();
 
-    virtual enum sdft_Error combine_with(struct sdft_State *other, void *buffer)
+    virtual sdft_Error combine_with(struct sdft_State *other, void *buffer)
     {
         Impl<Float> *o = dynamic_cast<Impl<Float> *>(other);
         if (o != 0 && o->_number_of_samples == _number_of_samples && o->_signal_traits == _signal_traits) {
@@ -78,9 +79,9 @@ template<typename Float>
 struct Combined : public sdft_State {
     Combined(Impl<Float> *first, Impl<Float> *second);
 
-    enum sdft_Error validate();
+    sdft_Error validate();
 
-    enum sdft_Error push_next_sample(void *next_sample);
+    sdft_Error push_next_sample(void *next_sample);
 
     void *unshift_and_get_signal();
 
@@ -88,7 +89,7 @@ struct Combined : public sdft_State {
     {
         assert(_clear_counter <= 2 * _number_of_samples);
         // See the invariant in push_next_sample.
-        return _number_of_samples <= _number_of_samples
+        return _clear_counter <= _number_of_samples
                 ? _first->get_spectrum()
                 : _second->get_spectrum();
     }
@@ -183,7 +184,7 @@ Impl<Float>::Impl(void *signal, void *spectrum, void *phase_offsets,
 }
 
 template<typename Float>
-bool Impl<Float>::matches_signal_trait(Impl::cplx const &c) const
+bool Impl<Float>::matches_signal_trait(typename Impl::cplx const &c) const
 {
     return _signal_traits == SDFT_REAL_AND_IMAG
             || (_signal_traits == SDFT_REAL_ONLY && imag(c) == 0)
@@ -223,7 +224,7 @@ void Impl<Float>::clear()
 }
 
 template<typename Float>
-enum sdft_Error Impl<Float>::push_next_sample(void *next_sample)
+sdft_Error Impl<Float>::push_next_sample(void *next_sample)
 {
     assert(_signal_index >= 0 && _signal_index < _number_of_samples);
 
@@ -277,6 +278,7 @@ void *Impl<Float>::unshift_and_get_signal()
 
     assert((cur + ofs) % n == 0); // or: next == 0
     _signal[cur] = first;
+	_signal_index = 0;
 
     return _signal;
 }
@@ -289,13 +291,13 @@ Combined<Float>::Combined(Impl<Float> *first, Impl<Float> *second)
 }
 
 template<typename Float>
-enum sdft_Error Combined<Float>::validate()
+sdft_Error Combined<Float>::validate()
 {
     return SDFT_NO_ERROR;
 }
 
 template<typename Float>
-enum sdft_Error Combined<Float>::push_next_sample(void *next_sample)
+sdft_Error Combined<Float>::push_next_sample(void *next_sample)
 {
     // Invariant: 0 <= _clear_counter <= _number_of_samples
     //                  iff _first has the valid spectrum
@@ -330,7 +332,7 @@ void *Combined<Float>::unshift_and_get_signal()
 {
     assert(_clear_counter <= 2 * _number_of_samples);
     // See the invariant in push_next_sample.
-    return _number_of_samples <= _number_of_samples
+    return _clear_counter <= _number_of_samples
             ? _first->unshift_and_get_signal()
             : _second->unshift_and_get_signal();
 }
