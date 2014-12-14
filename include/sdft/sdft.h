@@ -34,6 +34,13 @@ enum sdft_SignalTraits {
     SDFT_IMAG_ONLY
 };
 
+enum sdft_Error {
+    SDFT_NO_ERROR,
+    SDFT_WINDOW_TOO_SHORT,
+    SDFT_SIGNAL_TRAIT_VIOLATION,
+    SDFT_NOT_COMBINABLE,
+};
+
 /**
 * \brief Returns the size of the sdft_State struct which has to be allocated by the
 *        user of the library.
@@ -56,7 +63,7 @@ size_t sdft_size_of_state();
 *        complex elements, depending on the signal_trait which is guaranteed by the user.
 * \param phase_offsets a buffer for internal use whose content will be overwritten. At least number_of_samples
 *        complex elements.
-* \param number_of_samples the number of samples in signal and also the number of bins in spectrum.
+* \param number_of_samples the number of samples in signal and also the number of bins in the spectrum.
 * \param signal_traits can pass guarantees to the SDFT about the signal which can be exploited.
 *        In particular, purely real and purely imaginary signals can be represented by a spectrum of half the
 *        sample length because of the implied symmetries in the frequency domain.
@@ -67,7 +74,7 @@ size_t sdft_size_of_state();
 *        not certain of the traits of the signal.
 * \see sdft_State, sdft_SignalTraits, sdft_float
 */
-void sdft_init(
+enum sdft_Error sdft_init_from_buffers(
         struct sdft_State *state,
         enum sdft_FloatPrecision precision,
         void *signal,
@@ -75,6 +82,12 @@ void sdft_init(
         void *phase_offsets,
         size_t number_of_samples,
         enum sdft_SignalTraits signal_traits);
+
+
+enum sdft_Error sdft_init_combine(
+        struct sdft_State *state,
+        struct sdft_State *first,
+        struct sdft_State *second);
 
 /**
 * \brief Pushes a fresh sample through the sDFT and updates the spectrum, which is immediately usable.
@@ -89,16 +102,23 @@ void sdft_init(
 *
 * Runtime: O(number_of_samples)
 */
-void sdft_push_next_sample(struct sdft_State *state, void *next_sample);
+enum sdft_Error sdft_push_next_sample(struct sdft_State *state, void *next_sample);
 
 /**
-* \brief Restores the initial ordering of the signal buffer after having called sdft_push_next_sample one or more times.
+* \brief Returns a pointer to the current spectrum buffer.
 *
-* Should only be done for inspecting the stored signal values.
+* For same states, the result of this function may change after invocations of sdft_push_next_sample if state
+* is initialized as combined.
+*/
+void *sdft_get_spectrum(struct sdft_State *state);
+
+/**
+* \brief Restores the initial ordering of the signal buffer after having called sdft_push_next_sample one or more times
+*        and returns it.
 *
 * Runtime: O(number_of_samples)
 */
-void sdft_unshift_signal(struct sdft_State *state);
+void *sdft_unshift_and_get_signal(struct sdft_State *state);
 
 #ifdef __cplusplus
 };

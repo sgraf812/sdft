@@ -37,7 +37,7 @@ char *compare_sdft_to_dft(my_complex *new_signal, enum sdft_SignalTraits traits,
 
     // 2. Allocate and initialize the sdft_State with the help of the first two library functions
     struct sdft_State *s = malloc(sdft_size_of_state());
-    sdft_init(
+    sdft_init_from_buffers(
             s,             // pointer to the allocated state struct
             SDFT_DOUBLE,   // floating point type to use for the complex computations
             signal_buffer, // user allocated and initialized buffer containing the signal, length at least N
@@ -59,22 +59,23 @@ char *compare_sdft_to_dft(my_complex *new_signal, enum sdft_SignalTraits traits,
 
     // 4. When we want to inspect what the actual signal values are, we have to unshift the
     //    internal representation first.
-    sdft_unshift_signal(s);
+    my_complex *sig = sdft_unshift_and_get_signal(s);
 
     // 5. Now we can also access signal_buffer for the stored signal.
     //    In this case, since we pushed all N values of new_signal, the signal_buffer must contain
     //    the same samples as new_signal.
     for (size_t i = 0; i < N; ++i) {
-        MU_ASSERT("signal equals new_signal", my_complex_equal(signal_buffer + i, new_signal + i));
+        MU_ASSERT("signal equals new_signal", my_complex_equal(sig + i, new_signal + i));
     }
 
     my_complex *expected_spec = malloc(sizeof(my_complex) * N);
     dft(new_signal, expected_spec, N);
 
     // 6. Here, we compare the spectrum computed by the SDFT to that of a classic DFT.
+    my_complex *actual_spec = sdft_get_spectrum(s);
     size_t n_bins = traits == SDFT_REAL_AND_IMAG ? N : N / 2;
     for (size_t i = 0; i < n_bins; ++i) {
-        my_complex delta = my_complex_sub(spec_buffer + i, expected_spec + i);
+        my_complex delta = my_complex_sub(actual_spec + i, expected_spec + i);
         MU_ASSERT("spectrum equal to that of the dft", my_complex_abs(&delta) < 0.001);
     }
 
@@ -97,6 +98,79 @@ char *compare_sdft_to_dft(my_complex *new_signal, enum sdft_SignalTraits traits,
     return 0;
 }
 
+char *compare_sdft_to_dft_combined(my_complex *new_signal, enum sdft_SignalTraits traits, size_t N)
+{
+    //  1. Here, because we want to combine 2 sdfts runs, we allocate buffers twice as big.
+    my_complex *signal_buffer = malloc(sizeof(my_complex) * 2 * N);
+    my_complex *spec_buffer = malloc(sizeof(my_complex) * 2 * N);
+    my_complex *phase_buffer = malloc(sizeof(my_complex) * 2 * N);
+    memset(signal_buffer, 0, 2 * N * sizeof(my_complex));
+    memset(spec_buffer, 0, 2 * N * sizeof(my_complex));
+
+    // 2. Allocate and initialize the sdft_State with the help of the first two library functions
+    struct sdft_State *fst = malloc(sdft_size_of_state());
+    struct sdft_State *snd = malloc(sdft_size_of_state());
+    struct sdft_State *combined = malloc(sdft_size_of_state());
+
+    // Initialize the two sub struct in the same manner. The buffers of the second state are offset by N.
+    sdft_init_from_buffers(fst, SDFT_DOUBLE, signal_buffer, spec_buffer, phase_buffer, N, traits);
+    sdft_init_from_buffers(snd, SDFT_DOUBLE, signal_buffer + N, spec_buffer + N, phase_buffer + N, N, traits);
+
+    // Now we combine the fst and the snd state.
+    sdft_init_combine(combined, fst, snd);
+
+    // 3. Push through all new N values of our incoming signal.
+    //    To make this more interesting (and to actually test that the combination works),
+    //    We will push through the values 10 times.
+    for (int i = 0; i < 10 * N; ++i) {
+        sdft_push_next_sample(combined, new_signal + i);
+    }
+
+    // Steps 4-6 are rather optional.
+
+    // 4. When we want to inspect what the actual signal values are, we have to unshift the
+    //    internal representation first.
+    my_complex *sig = sdft_unshift_and_get_signal(combined);
+
+    // 5. Now we can also access signal_buffer for the stored signal.
+    //    In this case, since we pushed all N values of new_signal, the signal_buffer must contain
+    //    the same samples as new_signal.
+    for (size_t i = 0; i < N; ++i) {
+        MU_ASSERT("signal equals new_signal", my_complex_equal(sig + i, new_signal + i));
+    }
+
+    my_complex *expected_spec = malloc(sizeof(my_complex) * N);
+    dft(new_signal, expected_spec, N);
+
+    // 6. Here, we compare the spectrum computed by the SDFT to that of a classic DFT.
+    my_complex *actual_spec = sdft_get_spectrum(combined);
+    size_t n_bins = traits == SDFT_REAL_AND_IMAG ? N : N / 2;
+    for (size_t i = 0; i < n_bins; ++i) {
+        my_complex delta = my_complex_sub(actual_spec + i, expected_spec + i);
+        MU_ASSERT("spectrum equal to that of the dft", my_complex_abs(&delta) < 0.001);
+    }
+
+    double *abs_spec = malloc(sizeof(double) * N);
+    for (size_t i = 0; i < N; i++) {
+        abs_spec[i] = my_complex_abs(actual_spec + i);
+    }
+
+    // 7. Finally, we have to be sure to free all allocated buffers.
+    //    In this case, we allocated all buffers on the stack, the only exception being
+    //    the sdft_State variable, which was malloc'ed. (Technically, we could use VLA to allocate it
+    //    on the stack, too).
+    free(fst);
+    free(snd);
+    free(combined);
+    free(signal_buffer);
+    free(spec_buffer);
+    free(phase_buffer);
+    free(expected_spec);
+    free(abs_spec);
+
+    return 0;
+}
+
 char *test_build_dft_from_zeros()
 {
     my_complex new_signal[] = {
@@ -106,7 +180,11 @@ char *test_build_dft_from_zeros()
             {4, 0}, {1, 0}, {0, 74}, {79, 74.5}
     };
 
-    return compare_sdft_to_dft(new_signal, SDFT_REAL_AND_IMAG, 16);
+    char *msg;
+    if ((msg = compare_sdft_to_dft(new_signal, SDFT_REAL_AND_IMAG, 16))) {
+        return msg;
+    }
+    return compare_sdft_to_dft_combined(new_signal, SDFT_REAL_AND_IMAG, 16);
 }
 
 char *test_real_signal()
@@ -118,7 +196,11 @@ char *test_real_signal()
             {4, 0}, {1, 0}, {74, 0}, {79, 0}
     };
 
-    return compare_sdft_to_dft(new_signal, SDFT_REAL_ONLY, 16);
+    char *msg;
+    if ((msg = compare_sdft_to_dft(new_signal, SDFT_REAL_ONLY, 16))) {
+        return msg;
+    }
+    return compare_sdft_to_dft_combined(new_signal, SDFT_REAL_ONLY, 16);
 }
 
 char *test_imag_signal()
@@ -130,7 +212,11 @@ char *test_imag_signal()
             {0, 4}, {0, 1}, {0, 74}, {0, 79}
     };
 
-    return compare_sdft_to_dft(new_signal, SDFT_IMAG_ONLY, 16);
+    char *msg;
+    if ((msg = compare_sdft_to_dft(new_signal, SDFT_IMAG_ONLY, 16))) {
+        return msg;
+    }
+    return compare_sdft_to_dft_combined(new_signal, SDFT_IMAG_ONLY, 16);
 }
 
 #include "actual_signal.h"
@@ -144,7 +230,11 @@ char *test_actual_signal()
         new_signal[i].imag = 0;
     }
 
-    return compare_sdft_to_dft(new_signal, SDFT_REAL_ONLY, N);
+    char *msg;
+    if ((msg = compare_sdft_to_dft(new_signal, SDFT_REAL_ONLY, 16))) {
+        return msg;
+    }
+    return compare_sdft_to_dft_combined(new_signal, SDFT_REAL_ONLY, 16);
 }
 
 char *test_suite(void)
