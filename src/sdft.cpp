@@ -1,7 +1,6 @@
 #include <cassert>
 
 #include <complex>
-#include <algorithm>
 
 #include "sdft/sdft.h"
 
@@ -16,7 +15,7 @@ struct sdft_State {
 
     virtual void *get_spectrum() = 0;
 
-    virtual void *unshift_and_get_signal() = 0;
+    virtual void *unshift_and_get_window() = 0;
 
     virtual enum sdft_Error combine_with(struct sdft_State *other, void *buffer) = 0;
 
@@ -30,16 +29,16 @@ struct Combined;
 
 template<typename Float>
 struct Impl : public sdft_State {
-    Impl(void *signal, void *spectrum, void *phase_offsets, size_t number_of_samples,
+    Impl(void *signal, void *spectrum, void *phase_offsets, size_t window_size,
             enum sdft_SignalTraits signal_traits);
 
     sdft_Error validate();
 
     void clear();
 
-    size_t get_number_of_samples() const
+    size_t get_window_size() const
     {
-        return _number_of_samples;
+        return _window_size;
     }
 
     sdft_Error push_next_sample(void *next_sample);
@@ -49,12 +48,12 @@ struct Impl : public sdft_State {
         return _spectrum;
     }
 
-    void *unshift_and_get_signal();
+    void *unshift_and_get_window();
 
-    virtual sdft_Error combine_with(struct sdft_State *other, void *buffer)
+    sdft_Error combine_with(struct sdft_State *other, void *buffer)
     {
         Impl<Float> *o = dynamic_cast<Impl<Float> *>(other);
-        if (o != 0 && o->_number_of_samples == _number_of_samples && o->_signal_traits == _signal_traits) {
+        if (o != 0 && o->_window_size == _window_size && o->_signal_traits == _signal_traits) {
             new(buffer) Combined<Float>(this, o);
             return SDFT_NO_ERROR;
         }
@@ -67,11 +66,11 @@ private:
 
     bool matches_signal_trait(const cplx &c) const;
 
-    cplx *_signal;
+    cplx *_window;
     cplx *_spectrum;
     cplx *_phase_offsets;
-    size_t _signal_index;
-    size_t _number_of_samples;
+    size_t _window_index;
+    size_t _window_size;
     enum sdft_SignalTraits _signal_traits;
 };
 
@@ -83,18 +82,18 @@ struct Combined : public sdft_State {
 
     sdft_Error push_next_sample(void *next_sample);
 
-    void *unshift_and_get_signal();
+    void *unshift_and_get_window();
 
     void *get_spectrum()
     {
-        assert(_clear_counter <= 2 * _number_of_samples);
+        assert(_clear_counter <= 2 * _window_size);
         // See the invariant in push_next_sample.
-        return _clear_counter <= _number_of_samples
+        return _clear_counter <= _window_size
                 ? _first->get_spectrum()
                 : _second->get_spectrum();
     }
 
-    virtual enum sdft_Error combine_with(struct sdft_State *other, void *buffer)
+    enum sdft_Error combine_with(struct sdft_State *, void *)
     {
         return SDFT_NOT_COMBINABLE;
     }
@@ -102,7 +101,7 @@ struct Combined : public sdft_State {
 private:
     Impl<Float> *_first;
     Impl<Float> *_second;
-    size_t _number_of_samples;
+    size_t _window_size;
     size_t _clear_counter;
 };
 
@@ -118,22 +117,22 @@ size_t sdft_size_of_state()
 enum sdft_Error sdft_init_from_buffers(
         struct sdft_State *s,
         enum sdft_FloatPrecision precision,
-        void *signal,
+        void *window,
         void *spectrum,
         void *buffer,
-        size_t number_of_samples,
+        size_t window_size,
         enum sdft_SignalTraits signal_traits)
 {
 
     switch (precision) {
         case SDFT_SINGLE:
-            new(s) Impl<float>(signal, spectrum, buffer, number_of_samples, signal_traits);
+            new(s) Impl<float>(window, spectrum, buffer, window_size, signal_traits);
             break;
         case SDFT_DOUBLE:
-            new(s) Impl<double>(signal, spectrum, buffer, number_of_samples, signal_traits);
+            new(s) Impl<double>(window, spectrum, buffer, window_size, signal_traits);
             break;
         case SDFT_LONG_DOUBLE:
-            new(s) Impl<long double>(signal, spectrum, buffer, number_of_samples, signal_traits);
+            new(s) Impl<long double>(window, spectrum, buffer, window_size, signal_traits);
             break;
     }
 
@@ -160,9 +159,9 @@ void *sdft_get_spectrum(struct sdft_State *s)
     return s->get_spectrum();
 }
 
-void *sdft_unshift_and_get_signal(struct sdft_State *s)
+void *sdft_unshift_and_get_window(struct sdft_State *s)
 {
-    return s->unshift_and_get_signal();
+    return s->unshift_and_get_window();
 }
 
 //
@@ -171,15 +170,15 @@ void *sdft_unshift_and_get_signal(struct sdft_State *s)
 
 template<typename Float>
 Impl<Float>::Impl(void *signal, void *spectrum, void *phase_offsets,
-        size_t number_of_samples, enum sdft_SignalTraits signal_traits)
-        : _signal((cplx *) signal), _spectrum((cplx *) spectrum), _phase_offsets((cplx *) phase_offsets),
-          _signal_index(0), _number_of_samples(number_of_samples), _signal_traits(signal_traits)
+        size_t window_size, enum sdft_SignalTraits signal_traits)
+        : _window((cplx *) signal), _spectrum((cplx *) spectrum), _phase_offsets((cplx *) phase_offsets),
+          _window_index(0), _window_size(window_size), _signal_traits(signal_traits)
 {
     // generate the phase offsets
     const Float double_pi = static_cast<Float>(2 * 3.141592653589793238462643383279502884); // Enough precision for everyone!
-    for (size_t i = 0; i < number_of_samples; i++) {
-        cplx angle(0, double_pi * i / number_of_samples);
-        _phase_offsets[i] = exp(angle);
+    for (size_t i = 0; i < window_size; i++) {
+        cplx angle(0, double_pi * i / window_size);
+        _phase_offsets[i] = std::exp(angle);
     };
 }
 
@@ -187,21 +186,21 @@ template<typename Float>
 bool Impl<Float>::matches_signal_trait(typename Impl::cplx const &c) const
 {
     return _signal_traits == SDFT_REAL_AND_IMAG
-            || (_signal_traits == SDFT_REAL_ONLY && imag(c) == 0)
-            || (_signal_traits == SDFT_IMAG_ONLY && real(c) == 0);
+            || (_signal_traits == SDFT_REAL_ONLY && std::imag(c) == 0)
+            || (_signal_traits == SDFT_IMAG_ONLY && std::real(c) == 0);
 }
 
 template<typename Float>
 sdft_Error Impl<Float>::validate()
 {
     // the window should be of at least length 1
-    if (_number_of_samples < 1) {
+    if (_window_size < 1) {
         return SDFT_WINDOW_TOO_SHORT;
     }
 
     // check for violations of the signal traits
-    for (size_t i = 0; i < _number_of_samples; ++i) {
-        if (!matches_signal_trait(_signal[i])) {
+    for (size_t i = 0; i < _window_size; ++i) {
+        if (!matches_signal_trait(_window[i])) {
             return SDFT_SIGNAL_TRAIT_VIOLATION;
         }
     }
@@ -212,21 +211,21 @@ sdft_Error Impl<Float>::validate()
 template<typename Float>
 void Impl<Float>::clear()
 {
-    for (size_t i = 0; i < _number_of_samples; ++i) {
-        _signal[i] = 0;
+    for (size_t i = 0; i < _window_size; ++i) {
+        _window[i] = 0;
     }
 
-    for (size_t i = 0; i < _number_of_samples; ++i) {
+    for (size_t i = 0; i < _window_size; ++i) {
         _spectrum[i] = 0;
     }
 
-    _signal_index = 0;
+    _window_index = 0;
 }
 
 template<typename Float>
 sdft_Error Impl<Float>::push_next_sample(void *next_sample)
 {
-    assert(_signal_index >= 0 && _signal_index < _number_of_samples);
+    assert(_window_index >= 0 && _window_index < _window_size);
 
     cplx ns = *(cplx *) next_sample;
 
@@ -234,58 +233,39 @@ sdft_Error Impl<Float>::push_next_sample(void *next_sample)
         return SDFT_SIGNAL_TRAIT_VIOLATION;
     }
 
-    cplx delta = ns - _signal[_signal_index];
+    cplx delta = ns - _window[_window_index];
 
-    size_t n_samples = _number_of_samples;
     size_t n_bins = _signal_traits == SDFT_REAL_AND_IMAG
-            ? _number_of_samples
-            : _number_of_samples / 2; // only first half of spectrum relevant
+            ? _window_size
+            : _window_size / 2; // only first half of spectrum relevant
 
     for (size_t i = 0; i < n_bins; ++i) {
         _spectrum[i] = (_spectrum[i] + delta) * _phase_offsets[i];
     }
 
-    _signal[_signal_index] += delta;
-    if (++_signal_index == n_samples) {
-        _signal_index = 0;
+    _window[_window_index] = ns;
+    if (++_window_index == _window_size) {
+        _window_index = 0;
     }
 
     return SDFT_NO_ERROR;
 }
 
 template<typename Float>
-void *Impl<Float>::unshift_and_get_signal()
+void *Impl<Float>::unshift_and_get_window()
 {
-    size_t n = _number_of_samples;
+    assert(_window_size > _window_index);
 
-    if (_signal_index == 0) {
-        // we are lucky, there's nothing to shift
-        return _signal;
-    }
+    // this cyclically shifts the element at _window_index to the front
+    std::rotate(_window, _window + _window_index, _window + _window_size);
 
-    // instead of taking the signal index as offset, we take n - signal_index
-    // as offset to follow a cycle through the array.
-    assert(n > _signal_index);
-    size_t ofs = _signal_index;
-
-    cplx first = _signal[0];
-    size_t cur = 0;
-    for (size_t i = 0; i < n - 1; ++i) {
-        size_t next = (cur + ofs) % n;
-        _signal[cur] = _signal[next];
-        cur = next;
-    }
-
-    assert((cur + ofs) % n == 0); // or: next == 0
-    _signal[cur] = first;
-	_signal_index = 0;
-
-    return _signal;
+    _window_index = 0;
+    return _window;
 }
 
 template<typename Float>
 Combined<Float>::Combined(Impl<Float> *first, Impl<Float> *second)
-        : _first(first), _second(second), _number_of_samples(first->get_number_of_samples()), _clear_counter(0)
+        : _first(first), _second(second), _window_size(first->get_window_size()), _clear_counter(0)
 {
     _second->clear();
 }
@@ -299,15 +279,15 @@ sdft_Error Combined<Float>::validate()
 template<typename Float>
 sdft_Error Combined<Float>::push_next_sample(void *next_sample)
 {
-    // Invariant: 0 <= _clear_counter <= _number_of_samples
+    // Invariant: 0 <= _clear_counter <= _window_size
     //                  iff _first has the valid spectrum
-    //            _number_of_samples < _clear_counter <= 2*_number_of_samples
+    //            _window_size < _clear_counter <= 2*_window_size
     //                  iff _second has the valid spectrum
-    assert(_clear_counter <= 2 * _number_of_samples);
+    assert(_clear_counter <= 2 * _window_size);
 
-    if (_clear_counter == _number_of_samples) {
+    if (_clear_counter == _window_size) {
         _first->clear();
-    } else if (_clear_counter == 2 * _number_of_samples) {
+    } else if (_clear_counter == 2 * _window_size) {
         _second->clear();
         _clear_counter = 0;
     }
@@ -328,11 +308,11 @@ sdft_Error Combined<Float>::push_next_sample(void *next_sample)
 }
 
 template<typename Float>
-void *Combined<Float>::unshift_and_get_signal()
+void *Combined<Float>::unshift_and_get_window()
 {
-    assert(_clear_counter <= 2 * _number_of_samples);
+    assert(_clear_counter <= 2 * _window_size);
     // See the invariant in push_next_sample.
-    return _clear_counter <= _number_of_samples
-            ? _first->unshift_and_get_signal()
-            : _second->unshift_and_get_signal();
+    return _clear_counter <= _window_size
+            ? _first->unshift_and_get_window()
+            : _second->unshift_and_get_window();
 }
