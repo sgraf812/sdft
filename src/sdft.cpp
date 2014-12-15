@@ -1,6 +1,7 @@
 #include <cassert>
 
 #include <complex>
+#include <algorithm>
 
 #include "sdft/sdft.h"
 
